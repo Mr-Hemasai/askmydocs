@@ -1,0 +1,22 @@
+[
+  {
+    "question": "What does AI mean in the AI notes document?",
+    "ground_truth": "Artificial Intelligence is described as a branch of computer science that creates intelligent machines which can behave like humans, think like humans, and make decisions."
+  },
+  {
+    "question": "What are some reasons given for learning artificial intelligence?",
+    "ground_truth": "The notes say AI helps solve real-world problems accurately, supports virtual assistants, enables robots in risky environments, and opens paths to new technologies and opportunities."
+  },
+  {
+    "question": "What are the listed goals of artificial intelligence in the notes?",
+    "ground_truth": "The document lists goals such as replicating human intelligence, solving knowledge-intensive tasks, and creating an intelligent connection between perception and action."
+  },
+  {
+    "question": "According to The Dark Persuader, what three steps make manipulation successful?",
+    "ground_truth": "The introduction says manipulation involves analysis first, the act of manipulation itself, and persuasion as the final supporting step."
+  },
+  {
+    "question": "How does The Dark Persuader describe the best manipulators?",
+    "ground_truth": "It says the best manipulators do not force people into unwanted actions and instead help others see value in helping them."
+  }
+]
