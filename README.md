@@ -119,4 +119,7 @@ The tests mock heavy model dependencies so the suite can run without downloading
 
 ## Configuration
 
-All runtime settings are loaded from `.env` via [`app/core/config.py`](app/core/config.py). No module should hard-code retrieval thresholds, model names, or storage paths.
+All runtime settings are loaded from `.env` via [`app/core/config.py`](app/core/config.py). No module should hard-code retrieval thresholds, model names, or storage paths. See [`.env.example`](.env.example) for the full list of settings, including:
+
+- `CORS_ALLOW_ORIGINS` — comma-separated allowed origins for the API (`*` for any; credentials are disabled when `*`).
+- `MAX_SESSIONS` — maximum number of concurrent in-memory conversation sessions before the least-recently-used one is evicted.

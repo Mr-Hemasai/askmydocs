@@ -51,3 +51,19 @@ async def test_api_endpoints(monkeypatch, isolated_paths: dict[str, Path]) -> No
     assert documents_response.status_code == 200
     assert delete_response.status_code == 200
     assert health_response.json()["vectordb"] == "chroma"
+
+
+def test_session_lru_eviction(monkeypatch) -> None:
+    """Session store stays bounded and evicts the least-recently-used session."""
+
+    monkeypatch.setattr(api_main, "DefensiveRAG", FakeRAG)
+    monkeypatch.setattr(api_main.settings, "MAX_SESSIONS", 2)
+    api_main.sessions.clear()
+
+    first_id, _ = api_main.get_session("s1")
+    api_main.get_session("s2")
+    api_main.get_session(first_id)  # touch s1 so s2 becomes least-recently-used
+    api_main.get_session("s3")  # exceeds cap -> evicts s2
+
+    assert list(api_main.sessions.keys()) == ["s1", "s3"]
+    assert len(api_main.sessions) == 2
