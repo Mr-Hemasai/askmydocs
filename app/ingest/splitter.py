@@ -1,7 +1,7 @@
 # askmydocs/app/ingest/splitter.py — Document chunking utilities for retrieval
 from __future__ import annotations
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 
 from app.core.config import settings

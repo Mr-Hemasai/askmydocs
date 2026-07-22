@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     ENABLE_HYDE: bool = Field(default=False)
     ENABLE_VERIFICATION: bool = Field(default=False)
     BM25_WEIGHT: float = Field(default=0.4)
-    FAISS_WEIGHT: float = Field(default=0.6)
+    DENSE_WEIGHT: float = Field(default=0.6)
+    CORS_ALLOW_ORIGINS: str = Field(default="*")
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -34,6 +35,12 @@ class Settings(BaseSettings):
         extra="ignore",
         case_sensitive=True,
     )
+
+    @property
+    def cors_allow_origins(self) -> list[str]:
+        """Return the parsed list of allowed CORS origins."""
+
+        return [origin.strip() for origin in self.CORS_ALLOW_ORIGINS.split(",") if origin.strip()]
 
     @property
     def base_dir(self) -> Path:

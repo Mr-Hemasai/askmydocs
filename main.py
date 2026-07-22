@@ -5,6 +5,7 @@ import sys
 
 from app.core.logger import get_logger
 from app.rag.chain import DefensiveRAG
+from app.vectorstore.store import ingest_documents
 
 logger = get_logger()
 
@@ -21,6 +22,7 @@ def main() -> int:
 
     logger.info("Starting AskMyDocs CLI")
     try:
+        ingest_documents()
         rag = DefensiveRAG()
     except Exception as exc:
         logger.error(f"Failed to initialize CLI: {exc}")

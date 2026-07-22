@@ -7,13 +7,12 @@ from typing import Any
 from langchain.retrievers import EnsembleRetriever
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
-from langchain_core.vectorstores import VectorStoreRetriever
 from langchain_community.retrievers import BM25Retriever
 
 from app.core.config import settings
 from app.core.logger import get_logger
 from app.vectorstore.embeddings import format_query_for_retrieval
-from app.vectorstore.store import get_vectorstore, ingest_documents, load_bm25_payload
+from app.vectorstore.store import bm25_tokenize, get_vectorstore, load_bm25_payload
 
 logger = get_logger()
 
@@ -56,9 +55,13 @@ class HybridRetriever:
     """Hybrid retriever that combines BM25 and Chroma search."""
 
     def __init__(self) -> None:
-        """Initialize persistent BM25 and dense retrievers."""
+        """Initialize persistent BM25 and dense retrievers.
 
-        ingest_documents()
+        Ingestion is triggered explicitly by the API lifespan, the ``/ingest``
+        endpoint, the CLI, and the evaluation harness rather than on every
+        retriever construction, so a new session does not re-ingest the corpus.
+        """
+
         self.vectorstore = get_vectorstore()
         self.ensemble = self._build_ensemble()
 
@@ -69,7 +72,10 @@ class HybridRetriever:
         documents: list[Document] = payload.get("documents", [])
 
         if documents:
-            bm25_retriever: BaseRetriever = BM25Retriever.from_documents(documents)
+            bm25_retriever: BaseRetriever = BM25Retriever.from_documents(
+                documents,
+                preprocess_func=bm25_tokenize,
+            )
             bm25_retriever.k = settings.TOP_K_RETRIEVAL
         else:
             bm25_retriever = EmptyRetriever()
@@ -80,15 +86,8 @@ class HybridRetriever:
 
         return EnsembleRetriever(
             retrievers=[bm25_retriever, dense_retriever],
-            weights=[settings.BM25_WEIGHT, settings.FAISS_WEIGHT],
+            weights=[settings.BM25_WEIGHT, settings.DENSE_WEIGHT],
         )
-
-    def refresh(self) -> None:
-        """Refresh the ensemble after index changes."""
-
-        ingest_documents()
-        self.vectorstore = get_vectorstore()
-        self.ensemble = self._build_ensemble()
 
     def retrieve(self, query: str) -> RetrievalResult:
         """Retrieve hybrid documents and dense score metadata."""

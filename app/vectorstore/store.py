@@ -10,7 +10,6 @@ from typing import Any
 import chromadb
 from langchain_core.documents import Document
 from langchain_chroma import Chroma
-from rank_bm25 import BM25Okapi
 
 from app.core.config import settings
 from app.core.logger import get_logger
@@ -19,6 +18,12 @@ from app.ingest.splitter import split_documents
 from app.vectorstore.embeddings import get_embedding_model
 
 logger = get_logger()
+
+
+def bm25_tokenize(text: str) -> list[str]:
+    """Tokenize text for BM25 retrieval (shared by persistence and retrieval)."""
+
+    return text.lower().split()
 
 
 @dataclass
@@ -108,7 +113,7 @@ def load_bm25_payload() -> dict[str, Any]:
     """Load the persisted BM25 payload from disk."""
 
     if not settings.bm25_index_path.exists():
-        return {"documents": [], "tokenized_corpus": []}
+        return {"documents": []}
     try:
         with settings.bm25_index_path.open("rb") as handle:
             return pickle.load(handle)
@@ -118,14 +123,9 @@ def load_bm25_payload() -> dict[str, Any]:
 
 
 def save_bm25_payload(documents: list[Document]) -> None:
-    """Persist BM25 documents and tokens to disk."""
+    """Persist the BM25 corpus documents to disk."""
 
-    tokenized_corpus = [document.page_content.lower().split() for document in documents]
-    payload = {
-        "documents": documents,
-        "tokenized_corpus": tokenized_corpus,
-        "bm25": BM25Okapi(tokenized_corpus) if tokenized_corpus else None,
-    }
+    payload = {"documents": documents}
     with settings.bm25_index_path.open("wb") as handle:
         pickle.dump(payload, handle)
 
@@ -236,8 +236,13 @@ def ingest_documents() -> IngestionResult:
 def delete_document(filename: str) -> IngestionResult:
     """Delete a document from disk and indexes."""
 
-    target = settings.documents_dir / filename
-    if not target.exists():
+    safe_name = Path(filename).name
+    if not safe_name or safe_name != filename:
+        raise FileNotFoundError(filename)
+
+    documents_dir = settings.documents_dir
+    target = (documents_dir / safe_name).resolve()
+    if target.parent != documents_dir or not target.exists():
         raise FileNotFoundError(filename)
 
     try:
