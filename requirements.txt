@@ -1,4 +1,8 @@
 # askmydocs/requirements.txt — Pinned Python dependencies for the production AskMyDocs stack
+# AskMyDocs runs models on CPU, so pull the CPU-only torch build to avoid the
+# multi-GB CUDA wheels that sentence-transformers would otherwise install.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.2.2+cpu
 chromadb==0.5.3
 datasets==2.21.0
 fastapi==0.115.0
