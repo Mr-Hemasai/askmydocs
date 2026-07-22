@@ -1,6 +1,6 @@
-# askmydocs/README.md — Setup, architecture, API, CLI, and evaluation guide for AskMyDocs
+# AskMyDocs
 
-## AskMyDocs
+Setup, architecture, API, CLI, and evaluation guide for AskMyDocs.
 
 AskMyDocs is a fully local RAG system for querying private PDF documents with a defensive answer policy. The stack uses Ollama for generation, BGE embeddings for dense retrieval, ChromaDB for persistence, BM25 for sparse retrieval, an ensemble retriever for hybrid search, and a cross-encoder reranker for final context selection.
 
@@ -12,7 +12,7 @@ AskMyDocs is a fully local RAG system for querying private PDF documents with a 
 - Optional HyDE query rewriting and answer verification
 - Session-scoped conversation memory with the last 5 turns
 - FastAPI service with ingestion, query, health, and document management endpoints
-- Structured Loguru logging to [`logs/askmydocs.log`](/Users/hemasai/Documents/langchainproj/askmydocs/logs/askmydocs.log)
+- Structured Loguru logging to [`logs/askmydocs.log`](logs/askmydocs.log)
 - Offline RAGAS evaluation harness
 - Pytest suite covering ingestion, retrieval, RAG behavior, and API endpoints
 
@@ -53,7 +53,7 @@ The system is local-only. No cloud APIs are used.
 
 ## Ingestion
 
-Place PDFs in [`data/documents`](/Users/hemasai/Documents/langchainproj/askmydocs/data/documents) and then either start the API or run the CLI. Incremental ingestion computes an MD5 hash for each file, skips unchanged PDFs, updates changed PDFs, removes deleted PDFs from Chroma, and rebuilds the persisted BM25 index only when document state changes.
+Place PDFs in [`data/documents`](data/documents) and then either start the API or run the CLI. Incremental ingestion computes an MD5 hash for each file, skips unchanged PDFs, updates changed PDFs, removes deleted PDFs from Chroma, and rebuilds the persisted BM25 index only when document state changes.
 
 ## CLI Usage
 
@@ -89,7 +89,7 @@ curl -X POST http://localhost:8000/ask \
 
 ## Evaluation
 
-Sample evaluation pairs live in [`data/eval/qa_pairs.json`](/Users/hemasai/Documents/langchainproj/askmydocs/data/eval/qa_pairs.json). Add your own entries using this format:
+Sample evaluation pairs live in [`data/eval/qa_pairs.json`](data/eval/qa_pairs.json). Add your own entries using this format:
 
 ```json
 [
@@ -106,11 +106,12 @@ Run the evaluation harness:
 python scripts/evaluate.py
 ```
 
-The script writes a JSON report to [`logs/ragas_report.json`](/Users/hemasai/Documents/langchainproj/askmydocs/logs/ragas_report.json). If Ollama is not running, the script exits cleanly and records a skipped report instead of crashing.
+The script writes a JSON report to [`logs/ragas_report.json`](logs/ragas_report.json). If Ollama is not running, the script exits cleanly and records a skipped report instead of crashing.
 
 ## Testing
 
 ```bash
+pip install -r requirements-dev.txt
 pytest tests/ -v
 ```
 
@@ -118,4 +119,4 @@ The tests mock heavy model dependencies so the suite can run without downloading
 
 ## Configuration
 
-All runtime settings are loaded from `.env` via [`app/core/config.py`](/Users/hemasai/Documents/langchainproj/askmydocs/app/core/config.py). No module should hard-code retrieval thresholds, model names, or storage paths.
+All runtime settings are loaded from `.env` via [`app/core/config.py`](app/core/config.py). No module should hard-code retrieval thresholds, model names, or storage paths.

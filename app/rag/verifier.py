@@ -39,4 +39,4 @@ class AnswerVerifier:
             return False
 
         verdict = response.content.strip().upper()
-        return verdict == "SUPPORTED"
+        return verdict.startswith("SUPPORTED")

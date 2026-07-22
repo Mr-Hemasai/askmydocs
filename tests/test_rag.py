@@ -4,6 +4,7 @@ from __future__ import annotations
 from langchain_core.documents import Document
 
 from app.rag.chain import DefensiveRAG, REFUSAL_MESSAGE
+from app.rag.verifier import AnswerVerifier
 from app.retriever.hybrid import RetrievalResult
 
 
@@ -132,3 +133,70 @@ def test_rag_rejects_invalid_query() -> None:
     )
     result = rag.ask("hi")
     assert result["confidence"] == "None"
+
+
+class NoDistanceRetriever:
+    """Retriever whose reranked docs carry no dense distance (BM25-only hit)."""
+
+    def __init__(self) -> None:
+        """Initialize the retriever with empty score maps."""
+
+        self.result = RetrievalResult(
+            documents=[
+                Document(page_content="Keyword-only context", metadata={"chunk_id": "c9", "file_name": "doc.pdf", "page_number": 2})
+            ],
+            distance_map={},
+            relevance_map={},
+        )
+
+    def retrieve(self, query: str) -> RetrievalResult:
+        """Return the fixed retrieval result."""
+
+        return self.result
+
+
+def test_rag_answers_bm25_only_hit_without_distance() -> None:
+    """A chunk with no dense distance must not be force-refused."""
+
+    rag = DefensiveRAG(
+        retriever=NoDistanceRetriever(),
+        reranker=FakeReranker(),
+        llm=FakeLLM(),
+        query_rewriter=FakeRewriter(),
+        verifier=FakeVerifier(True),
+    )
+
+    result = rag.ask("What does the document say about keywords?")
+    assert result["answer"] == "Grounded answer."
+    assert result["confidence"] == "Low"
+    assert result["contexts"] == ["Keyword-only context"]
+
+
+class VerdictLLM:
+    """LLM stub that returns a fixed verification verdict."""
+
+    def __init__(self, verdict: str) -> None:
+        """Store the verdict content to return."""
+
+        self.verdict = verdict
+
+    def invoke(self, prompt: str) -> FakeLLMResponse:
+        """Return the configured verdict."""
+
+        return FakeLLMResponse(self.verdict)
+
+
+def test_verifier_accepts_supported_with_trailing_text() -> None:
+    """A 'SUPPORTED.' verdict with punctuation is treated as supported."""
+
+    verifier = AnswerVerifier(VerdictLLM("SUPPORTED."))
+    verifier.enabled = True
+    assert verifier.verify("context", "answer") is True
+
+
+def test_verifier_rejects_unsupported() -> None:
+    """An 'UNSUPPORTED' verdict is treated as not supported."""
+
+    verifier = AnswerVerifier(VerdictLLM("UNSUPPORTED"))
+    verifier.enabled = True
+    assert verifier.verify("context", "answer") is False

@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import AsyncIterator, Awaitable, Callable
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
@@ -18,7 +19,20 @@ from app.rag.chain import DefensiveRAG
 from app.vectorstore.store import delete_document, get_indexed_documents, ingest_documents
 
 logger = get_logger()
-app = FastAPI(title="AskMyDocs", version="2.0.0")
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    """Initialize persistent indexes on startup."""
+
+    try:
+        ingest_documents()
+    except Exception as exc:
+        logger.error(f"Server error during startup ingestion: {exc}")
+    yield
+
+
+app = FastAPI(title="AskMyDocs", version="2.0.0", lifespan=lifespan)
 sessions: dict[str, DefensiveRAG] = {}
 
 
@@ -43,23 +57,14 @@ async def log_requests(
     return response
 
 
+_cors_origins = settings.cors_allow_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_origins != ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    """Initialize persistent indexes on startup."""
-
-    try:
-        ingest_documents()
-    except Exception as exc:
-        logger.error(f"Server error during startup ingestion: {exc}")
 
 
 def get_session(session_id: str | None) -> tuple[str, DefensiveRAG]:
@@ -124,6 +129,7 @@ async def ask(request: AskRequest) -> dict[str, object]:
         logger.error(f"Server error while answering question: {exc}")
         raise HTTPException(status_code=500, detail="Failed to answer question.") from exc
 
+    answer.pop("contexts", None)
     answer["session_id"] = session_id
     return answer
 

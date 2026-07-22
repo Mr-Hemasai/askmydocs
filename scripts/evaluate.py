@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.core.logger import get_logger
 from app.rag.chain import DefensiveRAG
 from app.vectorstore.embeddings import get_embedding_model
+from app.vectorstore.store import ingest_documents
 
 logger = get_logger()
 
@@ -35,20 +36,18 @@ def load_eval_dataset(dataset_path: Path | None = None) -> list[dict[str, str]]:
 
 
 def build_eval_rows(rag: DefensiveRAG, qa_pairs: list[dict[str, str]]) -> list[dict[str, Any]]:
-    """Run the RAG pipeline over the evaluation dataset."""
+    """Run the RAG pipeline once per question over the evaluation dataset."""
 
     rows: list[dict[str, Any]] = []
     for qa_pair in qa_pairs:
         question = qa_pair["question"]
-        rewritten_query = rag.query_rewriter.rewrite(question)
-        retrieval = rag.retriever.retrieve(rewritten_query)
-        reranked_docs = rag.reranker.rerank(question, retrieval.documents)
-        answer = rag.ask(question)
+        rag.clear_memory()
+        result = rag.ask(question)
         rows.append(
             {
                 "question": question,
-                "answer": answer["answer"],
-                "contexts": [document.page_content for document in reranked_docs],
+                "answer": result["answer"],
+                "contexts": result["contexts"],
                 "ground_truth": qa_pair["ground_truth"],
             }
         )
@@ -67,6 +66,7 @@ def main() -> int:
 
     qa_pairs = load_eval_dataset()
     try:
+        ingest_documents()
         rag = DefensiveRAG()
         rag.llm.invoke("Reply with OK.")
     except Exception as exc:

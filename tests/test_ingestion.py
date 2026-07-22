@@ -4,6 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from app.ingest.loader import compute_md5, load_documents
 from app.ingest.splitter import split_documents
 from app.vectorstore import store
@@ -84,3 +86,15 @@ def test_hash_detection(monkeypatch: Any, synthetic_pdf: Path) -> None:
     third_result = store.ingest_documents()
     assert third_result.files_updated == ["synthetic.pdf"]
     assert third_result.documents_changed is True
+
+
+def test_delete_document_rejects_path_traversal(isolated_paths: dict[str, Path]) -> None:
+    """A traversal filename must not escape the documents directory."""
+
+    outside = isolated_paths["documents_dir"].parent / "secret.txt"
+    outside.write_text("do not delete", encoding="utf-8")
+
+    with pytest.raises(FileNotFoundError):
+        store.delete_document("../secret.txt")
+
+    assert outside.exists()

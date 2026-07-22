@@ -1,9 +1,9 @@
 # askmydocs/app/rag/chain.py — Defensive RAG engine with hybrid retrieval, reranking, memory, and verification
 from __future__ import annotations
 
+from collections import deque
 from typing import Any
 
-from langchain.memory import ConversationBufferWindowMemory
 from langchain_ollama import ChatOllama
 
 from app.core.config import settings
@@ -16,6 +16,30 @@ from app.retriever.reranker import RerankingRetriever
 
 logger = get_logger()
 REFUSAL_MESSAGE = "I could not find relevant information in the provided documents."
+
+
+class WindowedMemory:
+    """Keep the last ``k`` conversation turns as a formatted history string."""
+
+    def __init__(self, k: int) -> None:
+        """Initialize the sliding-window memory."""
+
+        self._turns: deque[tuple[str, str]] = deque(maxlen=k)
+
+    def load_history(self) -> str:
+        """Return the retained turns formatted for prompting."""
+
+        return "\n".join(f"Human: {question}\nAI: {answer}" for question, answer in self._turns)
+
+    def save(self, question: str, answer: str) -> None:
+        """Append a completed turn to the window."""
+
+        self._turns.append((question, answer))
+
+    def clear(self) -> None:
+        """Drop all retained turns."""
+
+        self._turns.clear()
 
 
 class DefensiveRAG:
@@ -36,13 +60,7 @@ class DefensiveRAG:
         self.llm = llm or ChatOllama(model=settings.OLLAMA_MODEL, temperature=0)
         self.query_rewriter = query_rewriter or QueryRewriter(self.llm)
         self.verifier = verifier or AnswerVerifier(self.llm)
-        self.memory = ConversationBufferWindowMemory(
-            k=5,
-            return_messages=False,
-            memory_key="history",
-            input_key="question",
-            output_key="answer",
-        )
+        self.memory = WindowedMemory(k=5)
         self.turn_number = 0
 
     def clear_memory(self) -> None:
@@ -50,11 +68,6 @@ class DefensiveRAG:
 
         self.memory.clear()
         self.turn_number = 0
-
-    def refresh_retriever(self) -> None:
-        """Refresh indexes after ingestion changes."""
-
-        self.retriever.refresh()
 
     def validate_query(self, query: str) -> tuple[bool, str | None]:
         """Validate a user query before retrieval."""
@@ -76,29 +89,38 @@ class DefensiveRAG:
         documents: list[Any],
         distance_map: dict[str, float],
         relevance_map: dict[str, float],
-    ) -> tuple[str, float]:
-        """Compute confidence from dense retrieval scores."""
+    ) -> tuple[str, bool]:
+        """Compute a confidence label and whether the answer should be refused.
 
-        best_distance = float("inf")
-        best_relevance = 0.0
+        Distances are only available for chunks that surfaced in dense
+        retrieval, so a chunk retrieved solely via BM25 has no distance. Refusal
+        is gated on the best available distance and is skipped entirely when no
+        retrieved chunk carries one, avoiding false refusals of keyword hits.
+        """
 
-        for document in documents:
-            chunk_id = str(document.metadata.get("chunk_id", ""))
-            if chunk_id in distance_map:
-                best_distance = min(best_distance, distance_map[chunk_id])
-            if chunk_id in relevance_map:
-                best_relevance = max(best_relevance, relevance_map[chunk_id])
+        distances = [
+            distance_map[chunk_id]
+            for document in documents
+            if (chunk_id := str(document.metadata.get("chunk_id", ""))) in distance_map
+        ]
+        relevances = [
+            relevance_map[chunk_id]
+            for document in documents
+            if (chunk_id := str(document.metadata.get("chunk_id", ""))) in relevance_map
+        ]
+        best_distance = min(distances) if distances else None
+        best_relevance = max(relevances) if relevances else 0.0
 
-        if best_distance > settings.DISTANCE_THRESHOLD:
+        if best_distance is not None and best_distance > settings.DISTANCE_THRESHOLD:
             logger.warning(f"Distance threshold not met: {best_distance}")
-            return "Low", best_distance
+            return "Low", True
 
         if best_relevance >= settings.CONFIDENCE_HIGH:
-            return "High", best_distance
+            return "High", False
         if best_relevance >= settings.CONFIDENCE_MEDIUM:
-            return "Medium", best_distance
+            return "Medium", False
         logger.warning(f"Low confidence answer with relevance {best_relevance}")
-        return "Low", best_distance
+        return "Low", False
 
     def _generate_answer(self, question: str, context: str, history: str) -> str:
         """Generate an answer from the LLM using the strict prompt."""
@@ -121,11 +143,12 @@ class DefensiveRAG:
                 "answer": validation_message,
                 "confidence": "None",
                 "sources": [],
+                "contexts": [],
                 "turn_number": self.turn_number,
                 "verified": False,
             }
 
-        history = str(self.memory.load_memory_variables({}).get("history", ""))
+        history = self.memory.load_history()
         rewritten_query = self.query_rewriter.rewrite(query, history=history)
         retrieval = self.retriever.retrieve(rewritten_query)
         reranked_documents = self.reranker.rerank(rewritten_query, retrieval.documents)
@@ -136,20 +159,22 @@ class DefensiveRAG:
                 "answer": REFUSAL_MESSAGE,
                 "confidence": "Low",
                 "sources": [],
+                "contexts": [],
                 "turn_number": self.turn_number,
                 "verified": False,
             }
 
-        confidence, best_distance = self._score_confidence(
+        confidence, should_refuse = self._score_confidence(
             reranked_documents,
             retrieval.distance_map,
             retrieval.relevance_map,
         )
-        if best_distance > settings.DISTANCE_THRESHOLD:
+        if should_refuse:
             return {
                 "answer": REFUSAL_MESSAGE,
                 "confidence": "Low",
                 "sources": [],
+                "contexts": [],
                 "turn_number": self.turn_number,
                 "verified": False,
             }
@@ -163,7 +188,7 @@ class DefensiveRAG:
             confidence = "Unverified"
 
         self.turn_number += 1
-        self.memory.save_context({"question": query}, {"answer": answer})
+        self.memory.save(query, answer)
 
         sources = [
             {
@@ -179,6 +204,7 @@ class DefensiveRAG:
             "answer": answer,
             "confidence": confidence,
             "sources": sources,
+            "contexts": [document.page_content for document in reranked_documents],
             "turn_number": self.turn_number,
             "verified": verified,
         }

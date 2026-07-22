@@ -1,7 +1,7 @@
 # askmydocs/app/rag/prompt.py — Strict defensive RAG prompt templates
 from __future__ import annotations
 
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 
 
 ANSWER_PROMPT = PromptTemplate(

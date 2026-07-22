@@ -58,7 +58,6 @@ def test_hybrid_retrieval(monkeypatch: Any) -> None:
         Document(page_content="alpha beta", metadata={"chunk_id": "c1"}),
         Document(page_content="gamma delta", metadata={"chunk_id": "c2"}),
     ]
-    monkeypatch.setattr(hybrid, "ingest_documents", lambda: None)
     monkeypatch.setattr(hybrid, "get_vectorstore", lambda: FakeVectorStore(documents))
     monkeypatch.setattr(hybrid, "load_bm25_payload", lambda: {"documents": documents})
 
