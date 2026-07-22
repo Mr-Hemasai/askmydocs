@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import time
+from collections import OrderedDict
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator, Awaitable, Callable
 from uuid import uuid4
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -26,14 +28,14 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """Initialize persistent indexes on startup."""
 
     try:
-        ingest_documents()
+        await run_in_threadpool(ingest_documents)
     except Exception as exc:
         logger.error(f"Server error during startup ingestion: {exc}")
     yield
 
 
 app = FastAPI(title="AskMyDocs", version="2.0.0", lifespan=lifespan)
-sessions: dict[str, DefensiveRAG] = {}
+sessions: OrderedDict[str, DefensiveRAG] = OrderedDict()
 
 
 class AskRequest(BaseModel):
@@ -68,12 +70,24 @@ app.add_middleware(
 
 
 def get_session(session_id: str | None) -> tuple[str, DefensiveRAG]:
-    """Return an existing session or create a new one."""
+    """Return an existing session or create a new one, bounding total sessions."""
 
     resolved_session_id = session_id or str(uuid4())
-    if resolved_session_id not in sessions:
+    if resolved_session_id in sessions:
+        sessions.move_to_end(resolved_session_id)
+    else:
         sessions[resolved_session_id] = DefensiveRAG()
+        while len(sessions) > settings.MAX_SESSIONS:
+            evicted_id, _ = sessions.popitem(last=False)
+            logger.info(f"Evicted least-recently-used session {evicted_id}")
     return resolved_session_id, sessions[resolved_session_id]
+
+
+def _answer_question(session_id: str | None, question: str) -> tuple[str, dict[str, object]]:
+    """Resolve a session and answer a question (blocking; runs in a worker thread)."""
+
+    resolved_session_id, rag = get_session(session_id)
+    return resolved_session_id, rag.ask(question)
 
 
 @app.exception_handler(Exception)
@@ -106,7 +120,7 @@ async def ingest(files: list[UploadFile] = File(...)) -> dict[str, object]:
             raise HTTPException(status_code=500, detail="Failed to save uploaded file.") from exc
         saved_files.append(destination.name)
 
-    result = ingest_documents()
+    result = await run_in_threadpool(ingest_documents)
     sessions.clear()
     return {
         "status": "ok",
@@ -122,9 +136,10 @@ async def ask(request: AskRequest) -> dict[str, object]:
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="Question must not be empty.")
 
-    session_id, rag = get_session(request.session_id)
     try:
-        answer = rag.ask(request.question)
+        session_id, answer = await run_in_threadpool(
+            _answer_question, request.session_id, request.question
+        )
     except Exception as exc:
         logger.error(f"Server error while answering question: {exc}")
         raise HTTPException(status_code=500, detail="Failed to answer question.") from exc
@@ -146,7 +161,7 @@ async def remove_document(filename: str) -> dict[str, str]:
     """Delete a document from disk and indexes."""
 
     try:
-        delete_document(filename)
+        await run_in_threadpool(delete_document, filename)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Document not found.") from exc
     except Exception as exc:

@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     BM25_WEIGHT: float = Field(default=0.4)
     DENSE_WEIGHT: float = Field(default=0.6)
     CORS_ALLOW_ORIGINS: str = Field(default="*")
+    MAX_SESSIONS: int = Field(default=100)
 
     model_config = SettingsConfigDict(
         env_file=".env",

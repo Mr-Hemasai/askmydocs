@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import pickle
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -46,11 +47,22 @@ def ensure_storage_dirs() -> None:
     settings.documents_dir.mkdir(parents=True, exist_ok=True)
 
 
+@lru_cache(maxsize=None)
+def _persistent_client(path: str) -> chromadb.PersistentClient:
+    """Return a cached Chroma client for a given persistence path."""
+
+    return chromadb.PersistentClient(path=path)
+
+
 def get_chroma_client() -> chromadb.PersistentClient:
-    """Return the shared persistent Chroma client."""
+    """Return the shared persistent Chroma client.
+
+    ``chromadb.PersistentClient`` is designed to be a singleton per path;
+    recreating it on every call is wasteful, so clients are cached by path.
+    """
 
     ensure_storage_dirs()
-    return chromadb.PersistentClient(path=str(settings.chroma_path))
+    return _persistent_client(str(settings.chroma_path))
 
 
 def get_vectorstore() -> Chroma:
